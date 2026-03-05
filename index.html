@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>施工管理ガントチャート</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (for JSX) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Libraries for Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* カスタムスクロールバー */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 印刷設定 */
+        @media print {
+            @page { size: A3 landscape; margin: 0; }
+            body { 
+                margin: 0; 
+                padding: 0; 
+                background: white; 
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            .no-print { display: none !important; }
+            #root { overflow: visible !important; height: auto !important; }
+        }
+        
+        /* テキスト選択の制御 */
+        .select-none {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* html2canvas用ハック：文字位置の微調整 */
+        .pdf-text-fix {
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding-top: 1px;
+        }
+
+        /* 休工日のオーバーレイ斜線パターン */
+        .holiday-mask {
+            background-image: repeating-linear-gradient(
+                -45deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 3px,
+                transparent 3px,
+                transparent 6px
+            );
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        .holiday-mask-print {
+            background-image: repeating-linear-gradient(
+                -45deg,
+                rgba(0, 0, 0, 0.2),
+                rgba(0, 0, 0, 0.2) 2px,
+                transparent 2px,
+                transparent 4px
+            );
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-slate-800 font-sans h-screen overflow-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- アイコンコンポーネント (SVG) ---
+        const Icon = ({ path, className, fill = "none", stroke = "currentColor" }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="24" height="24" 
+                viewBox="0 0 24 24" 
+                fill={fill} 
+                stroke={stroke} 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
+            >
+                {path}
+            </svg>
+        );
+
+        const Icons = {
+            Calendar: (props) => <Icon {...props} path={<><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></>} />,
+            Save: (props) => <Icon {...props} path={<><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></>} />,
+            Trash2: (props) => <Icon {...props} path={<><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></>} />,
+            Plus: (props) => <Icon {...props} path={<><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></>} />,
+            Star: (props) => <Icon {...props} fill={props.fill || "none"} path={<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>} />,
+            Building2: (props) => <Icon {...props} path={<><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path><path d="M10 6h4"></path><path d="M10 10h4"></path><path d="M10 14h4"></path><path d="M10 18h4"></path></>} />,
+            FileSpreadsheet: (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13h2"></path><path d="M8 17h2"></path><path d="M14 13h2"></path><path d="M14 17h2"></path></>} />,
+            Upload: (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></>} />,
+            Printer: (props) => <Icon {...props} path={<><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></>} />,
+            FolderOpen: (props) => <Icon {...props} path={<><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></>} />,
+            AlertTriangle: (props) => <Icon {...props} path={<><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></>} />,
+            Info: (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></>} />,
+            X: (props) => <Icon {...props} path={<><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></>} />,
+            FileText: (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></>} />,
+            Image: (props) => <Icon {...props} path={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></>} />,
+            ArrowLeft: (props) => <Icon {...props} path={<><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></>} />,
+            Settings: (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 2 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>} />,
+            Monitor: (props) => <Icon {...props} path={<><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></>} />,
+            Loader: (props) => <Icon {...props} path={<><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></>} />,
+            FilePlus: (props) => <Icon {...props} path={<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></>} />,
+            GripVertical: (props) => <Icon {...props} path={<><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></>} />,
+            Link: (props) => <Icon {...props} path={<><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></>} />,
+            ChevronDown: (props) => <Icon {...props} path={<polyline points="6 9 12 15 18 9"></polyline>} />,
+            ChevronRight: (props) => <Icon {...props} path={<polyline points="9 18 15 12 9 6"></polyline>} />,
+            CornerDownRight: (props) => <Icon {...props} path={<><polyline points="15 10 20 15 15 20"></polyline><path d="M4 4v7a4 4 0 0 0 4 4h12"></path></>} />,
+            Undo: (props) => <Icon {...props} path={<><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></>} />,
+            Redo: (props) => <Icon {...props} path={<><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path></>} />
+        };
+
+        // --- 日本の祝日データ (2024-2030) ---
+        const JP_HOLIDAYS = [
+          '2024-01-01', '2024-01-08', '2024-02-11', '2024-02-12', '2024-02-23', '2024-03-20', '2024-04-29', '2024-05-03', '2024-05-04', '2024-05-05', '2024-05-06', '2024-07-15', '2024-08-11', '2024-08-12', '2024-09-16', '2024-09-22', '2024-09-23', '2024-10-14', '2024-11-03', '2024-11-04', '2024-11-23',
+          '2025-01-01', '2025-01-13', '2025-02-11', '2025-02-23', '2025-02-24', '2025-03-20', '2025-04-29', '2025-05-03', '2025-05-04', '2025-05-05', '2025-05-06', '2025-07-21', '2025-08-11', '2025-09-15', '2025-09-23', '2025-10-13', '2025-11-03', '2025-11-23', '2025-11-24',
+          '2026-01-01', '2026-01-12', '2026-02-11', '2026-02-23', '2026-03-20', '2026-04-29', '2026-05-03', '2026-05-04', '2026-05-05', '2026-05-06', '2026-07-20', '2026-08-11', '2026-09-21', '2026-09-22', '2026-09-23', '2026-10-12', '2026-11-03', '2026-11-23',
+          '2027-01-01', '2027-01-11', '2027-02-11', '2027-02-23', '2027-03-21', '2027-03-22', '2027-04-29', '2027-05-03', '2027-05-04', '2027-05-05', '2027-07-19', '2027-08-11', '2027-09-20', '2027-09-23', '2027-10-11', '2027-11-03', '2027-11-23',
+          '2028-01-01', '2028-01-10', '2028-02-11', '2028-02-23', '2028-03-20', '2028-04-29', '2028-05-03', '2028-05-04', '2028-05-05', '2028-07-17', '2028-08-11', '2028-09-18', '2028-09-22', '2028-10-09', '2028-11-03', '2028-11-23',
+          '2029-01-01', '2029-01-08', '2029-02-11', '2029-02-12', '2029-02-23', '2029-03-20', '2029-04-29', '2029-04-30', '2029-05-03', '2029-05-04', '2029-05-05', '2029-07-16', '2029-08-11', '2029-09-17', '2029-09-23', '2029-09-24', '2029-10-08', '2029-11-03', '2029-11-23',
+          '2030-01-01', '2030-01-14', '2030-02-11', '2030-02-23', '2030-03-20', '2030-04-29', '2030-05-03', '2030-05-04', '2030-05-05', '2030-05-06', '2030-07-15', '2030-08-11', '2030-08-12', '2030-09-16', '2030-09-23', '2030-10-14', '2030-11-03', '2030-11-04', '2030-11-23'
+        ];
+
+        const checkIsHoliday = (date) => {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return JP_HOLIDAYS.includes(`${yyyy}-${mm}-${dd}`);
+        };
+
+        // --- 初期データセット (休工日を考慮したオフセット位置で配置) ---
+        const INITIAL_TASKS = [
+          { id: '1', parentId: null, isExpanded: true, category: '準備・基礎', name: '地鎮祭・配置確認', startOffset: 0, duration: 1, progress: 0, status: 'pending', isMilestone: false },
+          { id: '2', parentId: null, isExpanded: true, category: '準備・基礎', name: '地盤改良工事', startOffset: 1, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '3', parentId: null, isExpanded: true, category: '準備・基礎', name: '基礎工事', startOffset: 4, duration: 20, progress: 0, status: 'pending', isMilestone: false },
+          { id: 'new_child_1', parentId: '3', isExpanded: true, category: '準備・基礎', name: '鉄筋検査', startOffset: 12, duration: 1, progress: 0, status: 'pending', isMilestone: true },
+          { id: 'new2', parentId: null, isExpanded: true, category: '設備・配管', name: '給排水先行配管工事', startOffset: 24, duration: 2, progress: 0, status: 'pending', isMilestone: false },
+          { id: '4', parentId: null, isExpanded: true, category: '構造・躯体', name: '土台敷き・床下断熱施工', startOffset: 26, duration: 2, progress: 0, status: 'pending', isMilestone: false },
+          { id: '5', parentId: null, isExpanded: true, category: '構造・躯体', name: '上棟', startOffset: 28, duration: 2, progress: 0, status: 'pending', isMilestone: true },
+          { id: '6', parentId: null, isExpanded: true, category: '外装・屋根', name: '屋根工事', startOffset: 30, duration: 7, progress: 0, status: 'pending', isMilestone: false },
+          { id: '7', parentId: null, isExpanded: true, category: '構造・躯体', name: '金物取付', startOffset: 37, duration: 2, progress: 0, status: 'pending', isMilestone: false },
+          { id: '8', parentId: null, isExpanded: true, category: '構造・躯体', name: '構造検査', startOffset: 39, duration: 1, progress: 0, status: 'pending', isMilestone: true },
+          { id: '9', parentId: null, isExpanded: true, category: '外装・屋根', name: 'サッシ・玄関ドア取付', startOffset: 40, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '10', parentId: null, isExpanded: true, category: '外装・屋根', name: '外壁防水シート・胴縁施工', startOffset: 43, duration: 5, progress: 0, status: 'pending', isMilestone: false },
+          { id: '11', parentId: null, isExpanded: true, category: '内装・造作', name: '断熱材充填（壁・天井）', startOffset: 48, duration: 4, progress: 0, status: 'pending', isMilestone: false },
+          { id: '12', parentId: null, isExpanded: true, category: '設備・配管', name: '電気配線工事', startOffset: 52, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '13', parentId: null, isExpanded: true, category: '設備・配管', name: '給排水配管工事', startOffset: 55, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '14', parentId: null, isExpanded: true, category: '設備・配管', name: '換気工事', startOffset: 58, duration: 2, progress: 0, status: 'pending', isMilestone: false },
+          { id: '15', parentId: null, isExpanded: true, category: '設備・配管', name: '浴室工事', startOffset: 60, duration: 1, progress: 0, status: 'pending', isMilestone: false },
+          { id: '16', parentId: null, isExpanded: true, category: '内装・造作', name: '内部造作工事（床・階段・枠材）', startOffset: 61, duration: 25, progress: 0, status: 'pending', isMilestone: false },
+          { id: '17', parentId: null, isExpanded: true, category: '外装・屋根', name: '外壁仕上げ工事', startOffset: 86, duration: 14, progress: 0, status: 'pending', isMilestone: false },
+          { id: '18', parentId: null, isExpanded: true, category: '内装・造作', name: '石膏ボード貼り（壁・天井）', startOffset: 100, duration: 15, progress: 0, status: 'pending', isMilestone: false },
+          { id: '19', parentId: null, isExpanded: true, category: '仮設撤去', name: '足場解体', startOffset: 115, duration: 1, progress: 0, status: 'pending', isMilestone: true },
+          { id: 'new1', parentId: null, isExpanded: true, category: '内装・造作', name: '塗装工事', startOffset: 116, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '20', parentId: null, isExpanded: true, category: '内装・設備', name: '内装（パテ処理・クロス貼り）工事', startOffset: 119, duration: 10, progress: 0, status: 'pending', isMilestone: false },
+          { id: '21', parentId: null, isExpanded: true, category: '内装・設備', name: '住設機器（キッチン・トイレ等）取付', startOffset: 129, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '22', parentId: null, isExpanded: true, category: '内装・設備', name: '照明・電気・設備仕上げ工事', startOffset: 132, duration: 2, progress: 0, status: 'pending', isMilestone: false },
+          { id: '23', parentId: null, isExpanded: true, category: '完了・引渡', name: '室内クリーニング・美装', startOffset: 134, duration: 1, progress: 0, status: 'pending', isMilestone: false },
+          { id: '24', parentId: null, isExpanded: true, category: '完了・引渡', name: '完了検査・施主検査', startOffset: 135, duration: 2, progress: 0, status: 'pending', isMilestone: true },
+          { id: '25', parentId: null, isExpanded: true, category: '完了・引渡', name: '手直し・是正工事', startOffset: 137, duration: 3, progress: 0, status: 'pending', isMilestone: false },
+          { id: '26', parentId: null, isExpanded: true, category: '完了・引渡', name: 'お引き渡し', startOffset: 140, duration: 1, progress: 0, status: 'pending', isMilestone: true },
+        ];
+
+        const STANDARD_TEMPLATE = {
+            id: 'health-archi-standard',
+            name: 'HEALTH ARCHI標準仕様',
+            date: '標準設定',
+            tasks: INITIAL_TASKS,
+            projectStartDate: new Date().toISOString().substr(0, 10),
+            siteName: ''
+        };
+
+        // --- ユーティリティ関数 ---
+        const addDays = (date, days) => {
+          const result = new Date(date);
+          result.setDate(result.getDate() + days);
+          return result;
+        };
+
+        const formatDate = (date) => {
+          return `${date.getMonth() + 1}/${date.getDate()}`;
+        };
+
+        const formatDateFull = (date) => {
+          const y = date.getFullYear();
+          const m = ('0' + (date.getMonth() + 1)).slice(-2);
+          const d = ('0' + date.getDate()).slice(-2);
+          return `${y}/${m}/${d}`;
+        };
+
+        const getDayOfWeek = (date) => {
+          const days = ['日', '月', '火', '水', '木', '金', '土'];
+          return days[date.getDay()];
+        };
+
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        const parseDateString = (dateStr) => {
+          if (!dateStr) return null;
+          const parts = dateStr.split('/');
+          if (parts.length !== 3) return null;
+          return new Date(parts[0], parts[1] - 1, parts[2]);
+        };
+
+        const getDescendantIds = (parentId, allTasks) => {
+            let ids = [];
+            const children = allTasks.filter(t => t.parentId === parentId && !t.sameRowAs);
+            children.forEach(c => {
+                ids.push(c.id);
+                ids = ids.concat(getDescendantIds(c.id, allTasks));
+            });
+            return ids;
+        };
+
+        // 定数（サイズ調整）
+        const CELL_WIDTH = 24; 
+        const ROW_HEIGHT = 42; 
+        const HEADER_HEIGHT = 50; 
+
+        // 印刷設定
+        const PRINT_CELL_WIDTH = 18; 
+        const A3_RECOMMENDED_DAYS = 74; 
+
+        // --- メインコンポーネント ---
+        function App() {
+          const [projectStartDate, setProjectStartDate] = useState(new Date().toISOString().substr(0, 10));
+          const [siteName, setSiteName] = useState('');
+          const [tasks, setTasks] = useState([]); // 初期状態は白紙
+          const [isPrintMode, setIsPrintMode] = useState(false);
+          const [printPageDays, setPrintPageDays] = useState(A3_RECOMMENDED_DAYS);
+          const [printRowHeight, setPrintRowHeight] = useState(24); // 印刷時の行高さのState追加
+          const [isExporting, setIsExporting] = useState(false); 
+          const [isLinkedMode, setIsLinkedMode] = useState(false); 
+          const [excludeHolidays, setExcludeHolidays] = useState(false); // 初期状態OFF
+          const [showMilestoneLane, setShowMilestoneLane] = useState(true); // マイルストーンの表示/非表示
+          const [milestoneLabel, setMilestoneLabel] = useState('マイルストーン'); // マイルストーンのラベル名
+          const [sidebarWidth, setSidebarWidth] = useState(260); // サイドバーの幅
+            
+          const sidebarRef = useRef(null);
+          const ganttRef = useRef(null);
+          const fileInputRef = useRef(null);
+          const isResizingRef = useRef(false);
+
+          // 履歴管理（Undo/Redo）
+          const [history, setHistory] = useState([[]]);
+          const [historyIndex, setHistoryIndex] = useState(0);
+
+          const [showSaveModal, setShowSaveModal] = useState(false);
+          const [showLoadModal, setShowLoadModal] = useState(false);
+          const [confirmConfig, setConfirmConfig] = useState(null);
+            
+          const [saveName, setSaveName] = useState('');
+          const [savedTemplates, setSavedTemplates] = useState([]);
+
+          const [dragState, setDragState] = useState({
+            isDragging: false,
+            mode: null, 
+            taskId: null,
+            startX: 0,
+            originalStartOffset: 0,
+            originalDuration: 0,
+            initialTasks: []
+          });
+
+          // 行のドラッグ＆ドロップ（並び替え）用State
+          const [draggedTaskRow, setDraggedTaskRow] = useState(null);
+          const [dragOverTaskId, setDragOverTaskId] = useState(null);
+
+          // 最新のタスクを保持するRef
+          const tasksRef = useRef(tasks);
+          useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+          // 変更を履歴にコミットする関数
+          const commitHistory = (newTasks) => {
+              setTasks(newTasks);
+              const newHistory = history.slice(0, historyIndex + 1);
+              newHistory.push(newTasks);
+              setHistory(newHistory);
+              setHistoryIndex(newHistory.length - 1);
+          };
+
+          const handleUndo = () => {
+              if (historyIndex > 0) {
+                  setHistoryIndex(historyIndex - 1);
+                  setTasks(history[historyIndex - 1]);
+              }
+          };
+
+          const handleRedo = () => {
+              if (historyIndex < history.length - 1) {
+                  setHistoryIndex(historyIndex + 1);
+                  setTasks(history[historyIndex + 1]);
+              }
+          };
+
+          useEffect(() => {
+            const savedTasks = localStorage.getItem('construction_current_tasks');
+            const savedDate = localStorage.getItem('construction_current_date');
+            const savedSiteName = localStorage.getItem('construction_site_name');
+            const savedExcludeHolidays = localStorage.getItem('construction_exclude_holidays');
+            const savedShowMilestoneLane = localStorage.getItem('construction_show_milestone_lane');
+            const savedMilestoneLabel = localStorage.getItem('construction_milestone_label');
+            const savedSidebarWidth = localStorage.getItem('construction_sidebar_width');
+            const savedPrintRowHeight = localStorage.getItem('construction_print_row_height');
+              
+            if (savedTasks) {
+              const parsedTasks = JSON.parse(savedTasks);
+              const normalizedTasks = parsedTasks.map(t => ({
+                  ...t,
+                  parentId: t.parentId || null,
+                  sameRowAs: t.sameRowAs || null,
+                  isExpanded: t.isExpanded !== false
+              }));
+              setTasks(normalizedTasks);
+              setHistory([normalizedTasks]);
+              setHistoryIndex(0);
+            }
+            if (savedDate) setProjectStartDate(savedDate);
+            if (savedSiteName) setSiteName(savedSiteName);
+            if (savedExcludeHolidays) setExcludeHolidays(savedExcludeHolidays === 'true');
+            if (savedShowMilestoneLane) setShowMilestoneLane(savedShowMilestoneLane === 'true');
+            if (savedMilestoneLabel) setMilestoneLabel(savedMilestoneLabel);
+            if (savedSidebarWidth) setSidebarWidth(parseInt(savedSidebarWidth, 10));
+            if (savedPrintRowHeight) setPrintRowHeight(parseInt(savedPrintRowHeight, 10));
+
+            const templates = localStorage.getItem('construction_templates');
+            let parsedTemplates = [];
+            if (templates) {
+                parsedTemplates = JSON.parse(templates);
+                if (!parsedTemplates.find(t => t.id === 'health-archi-standard')) {
+                    parsedTemplates = [STANDARD_TEMPLATE, ...parsedTemplates];
+                }
+            } else {
+                parsedTemplates = [STANDARD_TEMPLATE];
+            }
+            setSavedTemplates(parsedTemplates);
+            localStorage.setItem('construction_templates', JSON.stringify(parsedTemplates));
+          }, []);
+
+          useEffect(() => {
+            localStorage.setItem('construction_current_tasks', JSON.stringify(tasks));
+            localStorage.setItem('construction_current_date', projectStartDate);
+            localStorage.setItem('construction_site_name', siteName);
+            localStorage.setItem('construction_exclude_holidays', excludeHolidays.toString());
+            localStorage.setItem('construction_show_milestone_lane', showMilestoneLane.toString());
+            localStorage.setItem('construction_milestone_label', milestoneLabel);
+            localStorage.setItem('construction_sidebar_width', sidebarWidth.toString());
+            localStorage.setItem('construction_print_row_height', printRowHeight.toString());
+          }, [tasks, projectStartDate, siteName, excludeHolidays, showMilestoneLane, milestoneLabel, sidebarWidth, printRowHeight]);
+
+          // --- サイドバーリサイズ処理 ---
+          const startSidebarResize = (e) => {
+              e.preventDefault();
+              isResizingRef.current = true;
+              document.addEventListener('mousemove', handleSidebarResize);
+              document.addEventListener('mouseup', stopSidebarResize);
+          };
+
+          const handleSidebarResize = (e) => {
+              if (!isResizingRef.current) return;
+              const newWidth = Math.max(200, Math.min(e.clientX, 600));
+              setSidebarWidth(newWidth);
+          };
+
+          const stopSidebarResize = () => {
+              isResizingRef.current = false;
+              document.removeEventListener('mousemove', handleSidebarResize);
+              document.removeEventListener('mouseup', stopSidebarResize);
+          };
+
+          // --- 行の並び替え（ドラッグ＆ドロップ） ---
+          const handleRowDragStart = (e, row) => {
+              setDraggedTaskRow(row);
+              setTimeout(() => { if(e.target) e.target.classList.add('opacity-50'); }, 0);
+          };
+
+          const handleRowDragEnd = (e) => {
+              if(e.target) e.target.classList.remove('opacity-50');
+              setDraggedTaskRow(null);
+              setDragOverTaskId(null);
+          };
+
+          const handleRowDragOver = (e, row) => {
+              e.preventDefault();
+              if (draggedTaskRow && draggedTaskRow.task.id !== row.task.id) {
+                  setDragOverTaskId(row.task.id);
+              }
+          };
+
+          const handleRowDrop = (e, row) => {
+              e.preventDefault();
+              setDragOverTaskId(null);
+              if (!draggedTaskRow) return;
+
+              const sourceTask = draggedTaskRow.task;
+              const targetTask = row.task;
+
+              if (sourceTask.id === targetTask.id) return;
+
+              const movingIds = [sourceTask.id, ...getDescendantIds(sourceTask.id, tasks)];
+              // 親を子の中にドロップするのを防ぐ
+              if (movingIds.includes(targetTask.id)) return;
+
+              const movingTasks = tasks.filter(t => movingIds.includes(t.id));
+              
+              // 階層をターゲットに合わせる（親をドロップ先の親と同じにする）
+              movingTasks[0].parentId = targetTask.parentId;
+
+              const remainingTasks = tasks.filter(t => !movingIds.includes(t.id));
+              const insertIndex = remainingTasks.findIndex(t => t.id === targetTask.id);
+              
+              if (insertIndex !== -1) {
+                  remainingTasks.splice(insertIndex, 0, ...movingTasks);
+                  commitHistory(remainingTasks);
+              }
+          };
+
+
+          // --- バーのドラッグ＆ドロップ処理 ---
+          const handleMouseDown = (e, task, mode) => {
+            e.preventDefault();
+            e.stopPropagation();
+              
+            setDragState({
+              isDragging: true,
+              mode: mode,
+              taskId: task.id,
+              startX: e.clientX,
+              originalStartOffset: task.startOffset,
+              originalDuration: task.duration,
+              initialTasks: JSON.parse(JSON.stringify(tasks))
+            });
+          };
+
+          const calculateRenderSpan = (startOffset, duration) => {
+              if (!excludeHolidays) return duration;
+              let span = 0;
+              let workDays = 0;
+              let currentDate = addDays(new Date(projectStartDate), startOffset);
+              const targetDuration = Math.max(1, duration);
+
+              while (workDays < targetDuration && span < 1000) {
+                  const isDayOff = currentDate.getDay() === 0 || checkIsHoliday(currentDate);
+                  if (!isDayOff) {
+                      workDays++;
+                  }
+                  span++;
+                  if (workDays < targetDuration) {
+                      currentDate = addDays(currentDate, 1);
+                  }
+              }
+              return span;
+          };
+
+          useEffect(() => {
+            const handleMouseMove = (e) => {
+              if (!dragState.isDragging || !dragState.taskId) return;
+
+              const deltaX = e.clientX - dragState.startX;
+              const deltaDays = Math.round(deltaX / CELL_WIDTH);
+              if (deltaDays === 0 && dragState.initialTasks.length > 0) return; 
+
+              const targetIndex = dragState.initialTasks.findIndex(t => t.id === dragState.taskId);
+              if (targetIndex === -1) return;
+
+              const targetTask = dragState.initialTasks[targetIndex];
+              const movingIds = [targetTask.id, ...getDescendantIds(targetTask.id, dragState.initialTasks)];
+
+              const newTasks = dragState.initialTasks.map((t, index) => {
+                  if (movingIds.includes(t.id)) {
+                      if (dragState.mode === 'move') {
+                          const newStart = Math.max(0, t.startOffset + deltaDays);
+                          return { ...t, startOffset: newStart };
+                      } else if (dragState.mode === 'resize' && t.id === dragState.taskId) {
+                          const originalSpan = calculateRenderSpan(t.startOffset, dragState.originalDuration);
+                          const newSpan = Math.max(1, originalSpan + deltaDays);
+                          
+                          let newDuration = 0;
+                          let currDate = addDays(new Date(projectStartDate), t.startOffset);
+                          for(let k = 0; k < newSpan; k++) {
+                              const isDayOff = currDate.getDay() === 0 || checkIsHoliday(currDate);
+                              if (!excludeHolidays || !isDayOff) {
+                                  newDuration++;
+                              }
+                              currDate = addDays(currDate, 1);
+                          }
+                          return { ...t, duration: Math.max(1, newDuration) };
+                      }
+                  }
+
+                  // 連動モード処理 (子工程か親工程かで連動範囲を制御)
+                  if (isLinkedMode && index > targetIndex && !movingIds.includes(t.id)) {
+                      if (targetTask.parentId !== null) {
+                          // 動かしたのが子工程の場合：同じ親に属する後続の子工程のみを連動させる
+                          if (t.parentId === targetTask.parentId) {
+                              const newStart = Math.max(0, t.startOffset + deltaDays);
+                              return { ...t, startOffset: newStart };
+                          }
+                      } else {
+                          // 動かしたのが親工程の場合：以降のすべての工程（親・子問わず）を連動させる
+                          const newStart = Math.max(0, t.startOffset + deltaDays);
+                          return { ...t, startOffset: newStart };
+                      }
+                  }
+                  return t;
+              });
+
+              setTasks(newTasks); 
+            };
+
+            const handleMouseUp = () => {
+              if (dragState.isDragging) {
+                  if (JSON.stringify(dragState.initialTasks) !== JSON.stringify(tasksRef.current)) {
+                      const newHistory = history.slice(0, historyIndex + 1);
+                      newHistory.push(tasksRef.current);
+                      setHistory(newHistory);
+                      setHistoryIndex(newHistory.length - 1);
+                  }
+                  setDragState(prev => ({ ...prev, isDragging: false, taskId: null, initialTasks: [] }));
+              }
+            };
+
+            if (dragState.isDragging) {
+              document.addEventListener('mousemove', handleMouseMove);
+              document.addEventListener('mouseup', handleMouseUp);
+            }
+
+            return () => {
+              document.removeEventListener('mousemove', handleMouseMove);
+              document.removeEventListener('mouseup', handleMouseUp);
+            };
+          }, [dragState, isLinkedMode, excludeHolidays, projectStartDate, history, historyIndex]);
+
+          const handleSidebarScroll = (e) => {
+            if (ganttRef.current && ganttRef.current.scrollTop !== e.target.scrollTop) {
+              ganttRef.current.scrollTop = e.target.scrollTop;
+            }
+          };
+
+          const handleGanttScroll = (e) => {
+            if (sidebarRef.current && sidebarRef.current.scrollTop !== e.target.scrollTop) {
+              sidebarRef.current.scrollTop = e.target.scrollTop;
+            }
+          };
+
+          const updateTask = (id, field, value) => {
+            const newTasks = tasks.map(t => t.id === id ? { ...t, [field]: value } : t);
+            commitHistory(newTasks);
+          };
+
+          const toggleStatus = (id) => {
+            const task = tasks.find(t => t.id === id);
+            if (!task) return;
+            const nextStatus = task.status === 'pending' ? 'in-progress' : task.status === 'completed' ? 'pending' : 'completed';
+            const nextProgress = nextStatus === 'completed' ? 100 : nextStatus === 'in-progress' ? 50 : 0;
+            
+            const newTasks = tasks.map(t => t.id === id ? { ...t, status: nextStatus, progress: nextProgress } : t);
+            commitHistory(newTasks);
+          };
+
+          const toggleMilestone = (id, currentVal) => {
+            const newTasks = tasks.map(t => t.id === id ? { ...t, isMilestone: !currentVal } : t);
+            commitHistory(newTasks);
+          };
+
+          const toggleExpand = (id) => {
+            const newTasks = tasks.map(t => t.id === id ? { ...t, isExpanded: !t.isExpanded } : t);
+            commitHistory(newTasks);
+          };
+
+          const addTask = (insertIndex, category) => {
+            // メインタスクのみのリストでのインデックスをベースにしている
+            const mainTasks = tasks.filter(t => !t.sameRowAs);
+            const prevTask = mainTasks[insertIndex];
+            const newTask = {
+              id: generateId(),
+              parentId: prevTask ? prevTask.parentId : null,
+              sameRowAs: null,
+              isExpanded: true,
+              category: category,
+              name: '新しい工程',
+              startOffset: prevTask ? prevTask.startOffset + prevTask.duration : 0,
+              duration: 3,
+              progress: 0,
+              status: 'pending',
+              isMilestone: false
+            };
+            
+            let actualInsertIndex = tasks.length;
+            if (prevTask) {
+               const descendantIds = getDescendantIds(prevTask.id, tasks);
+               if (descendantIds.length > 0) {
+                   actualInsertIndex = tasks.findIndex(t => t.id === descendantIds[descendantIds.length - 1]);
+               } else {
+                   actualInsertIndex = tasks.findIndex(t => t.id === prevTask.id);
+               }
+            }
+
+            const newTasks = [...tasks];
+            newTasks.splice(actualInsertIndex + 1, 0, newTask);
+            commitHistory(newTasks);
+          };
+
+          const addSubTask = (parentId) => {
+            const parentIndex = tasks.findIndex(t => t.id === parentId);
+            if (parentIndex === -1) return;
+
+            let insertIndex = parentIndex;
+            const descendantIds = getDescendantIds(parentId, tasks);
+            if (descendantIds.length > 0) {
+                insertIndex = tasks.findIndex(t => t.id === descendantIds[descendantIds.length - 1]);
+            }
+
+            const parentTask = tasks[parentIndex];
+            const newTask = {
+                id: generateId(),
+                parentId: parentId,
+                sameRowAs: null,
+                isExpanded: true,
+                category: parentTask.category,
+                name: '新しい工程',
+                startOffset: parentTask.startOffset,
+                duration: 3,
+                progress: 0,
+                status: 'pending',
+                isMilestone: false
+            };
+
+            const newTasks = [...tasks];
+            newTasks.splice(insertIndex + 1, 0, newTask);
+            newTasks[parentIndex] = { ...newTasks[parentIndex], isExpanded: true };
+            commitHistory(newTasks);
+          };
+
+          const handleRowDoubleClick = (e, targetTaskId) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const newStartOffset = Math.max(0, Math.floor(clickX / CELL_WIDTH));
+              
+              const targetTask = tasks.find(t => t.id === targetTaskId);
+              
+              const newBar = {
+                  id: generateId(),
+                  parentId: null, // ツリー上には表示しない
+                  sameRowAs: targetTaskId,
+                  category: targetTask ? targetTask.category : '',
+                  name: targetTask ? targetTask.name : '追加チャート',
+                  startOffset: newStartOffset,
+                  duration: 3,
+                  progress: 0,
+                  status: 'pending',
+                  isMilestone: false
+              };
+              
+              commitHistory([...tasks, newBar]);
+          };
+
+          const requestDeleteSubBar = (id) => {
+              const newTasks = tasks.filter(t => t.id !== id);
+              commitHistory(newTasks);
+          };
+
+          const requestDeleteTask = (e, id) => {
+            e.stopPropagation();
+            const taskToDelete = tasks.find(t => t.id === id);
+            const descendantIds = getDescendantIds(id, tasks);
+            
+            let idsToDelete = [id, ...descendantIds];
+            // 紐づく追加チャート（サブバー）も削除対象に含める
+            const subBarIds = tasks.filter(t => idsToDelete.includes(t.sameRowAs)).map(t => t.id);
+            idsToDelete = [...idsToDelete, ...subBarIds];
+            
+            if (taskToDelete && taskToDelete.parentId !== null && descendantIds.length === 0) {
+                const newTasks = tasks.filter(t => !idsToDelete.includes(t.id));
+                commitHistory(newTasks);
+                return;
+            }
+
+            const message = descendantIds.length > 0 
+                ? `この工程と、紐づく子工程（${descendantIds.length}件）を全て削除しますか？\n（追加されたチャートも削除されます）` 
+                : 'この工程を削除しますか？\n（追加されたチャートも削除されます）';
+                
+            setConfirmConfig({
+              message: message,
+              type: 'danger',
+              onConfirm: () => {
+                const newTasks = tasks.filter(t => !idsToDelete.includes(t.id));
+                commitHistory(newTasks);
+                setConfirmConfig(null);
+              }
+            });
+          };
+
+          const toggleExcludeHolidays = (newValue) => {
+              setExcludeHolidays(newValue);
+              
+              const newTasks = tasksRef.current.map(t => {
+                  if (newValue === false) { 
+                      let newOffset = t.startOffset;
+                      let curDate = new Date(projectStartDate);
+                      let holidayCount = 0;
+                      for (let i = 0; i < t.startOffset; i++) {
+                          if (curDate.getDay() === 0 || checkIsHoliday(curDate)) {
+                              holidayCount++;
+                          }
+                          curDate = addDays(curDate, 1);
+                      }
+                      newOffset -= holidayCount;
+                      return { ...t, startOffset: Math.max(0, newOffset) };
+                  } else { 
+                      let newOffset = 0;
+                      let curDate = new Date(projectStartDate);
+                      let workDays = 0;
+                      while (workDays < t.startOffset) {
+                          if (curDate.getDay() !== 0 && !checkIsHoliday(curDate)) {
+                              workDays++;
+                          }
+                          newOffset++;
+                          curDate = addDays(curDate, 1);
+                      }
+                      while (curDate.getDay() === 0 || checkIsHoliday(curDate)) {
+                          newOffset++;
+                          curDate = addDays(curDate, 1);
+                      }
+                      return { ...t, startOffset: newOffset };
+                  }
+              });
+              
+              commitHistory(newTasks);
+          };
+
+          const startDateObj = new Date(projectStartDate);
+          const totalDays = 240; 
+            
+          const calendarDays = useMemo(() => {
+            return Array.from({ length: totalDays }, (_, i) => {
+                const date = addDays(startDateObj, i);
+                const isHol = checkIsHoliday(date);
+                const isSun = date.getDay() === 0;
+                return {
+                    date,
+                    dayStr: formatDate(date),
+                    weekDay: getDayOfWeek(date),
+                    isWeekend: date.getDay() === 0 || date.getDay() === 6,
+                    isSunday: isSun,
+                    isHoliday: isHol,
+                    isDayOff: isSun || isHol,
+                    isToday: formatDate(date) === formatDate(new Date()) && date.getFullYear() === new Date().getFullYear()
+                };
+            });
+          }, [projectStartDate, totalDays]);
+
+          const handleExportCSV = () => {
+            const headers = ['ID', '親ID', 'カテゴリ', '工程名', '開始日', '終了日', '稼働期間(日)', '進捗(%)', 'ステータス', 'マイルストーン', '展開状態', '同一行ID'];
+            const csvContent = [
+              headers.join(','),
+              ...tasks.map(t => {
+                const taskStart = addDays(startDateObj, t.startOffset);
+                const span = calculateRenderSpan(t.startOffset, t.duration);
+                const taskEnd = addDays(startDateObj, t.startOffset + span - 1);
+                return [`"${t.id}"`, `"${t.parentId || ''}"`, `"${t.category}"`, `"${t.name}"`, formatDateFull(taskStart), formatDateFull(taskEnd), t.duration, t.progress, `"${t.status}"`, t.isMilestone ? 'TRUE' : 'FALSE', t.isExpanded ? 'TRUE' : 'FALSE', `"${t.sameRowAs || ''}"`].join(',');
+              })
+            ].join('\n');
+            const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${siteName || '工程表'}_${new Date().toISOString().substr(0,10)}.csv`);
+            link.click();
+          };
+
+          const handleImportCSV = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const text = e.target.result;
+              try {
+                const lines = text.split(/\r\n|\n/);
+                const dataLines = lines.slice(1).filter(line => line.trim() !== '');
+                let minDate = null;
+                const parsedData = dataLines.map(line => {
+                    const values = line.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                    if (!values || values.length < 9) return null;
+                    const cleanValues = values.map(v => v ? v.replace(/^"|"$/g, '') : '');
+                    
+                    let id, parentId, category, name, startDateStr, durationStr, progressStr, status, milestoneStr, expandedStr, sameRowAsStr;
+                    if (cleanValues.length >= 12) {
+                        id = cleanValues[0];
+                        parentId = cleanValues[1];
+                        category = cleanValues[2];
+                        name = cleanValues[3];
+                        startDateStr = cleanValues[4];
+                        durationStr = cleanValues[6];
+                        progressStr = cleanValues[7];
+                        status = cleanValues[8];
+                        milestoneStr = cleanValues[9];
+                        expandedStr = cleanValues[10];
+                        sameRowAsStr = cleanValues[11];
+                    } else if (cleanValues.length >= 11) {
+                        id = cleanValues[0];
+                        parentId = cleanValues[1];
+                        category = cleanValues[2];
+                        name = cleanValues[3];
+                        startDateStr = cleanValues[4];
+                        durationStr = cleanValues[6];
+                        progressStr = cleanValues[7];
+                        status = cleanValues[8];
+                        milestoneStr = cleanValues[9];
+                        expandedStr = cleanValues[10];
+                        sameRowAsStr = '';
+                    } else {
+                        id = cleanValues[0];
+                        parentId = '';
+                        category = cleanValues[1];
+                        name = cleanValues[2];
+                        startDateStr = cleanValues[3];
+                        durationStr = cleanValues[5];
+                        progressStr = cleanValues[6];
+                        status = cleanValues[7];
+                        milestoneStr = cleanValues[8];
+                        expandedStr = 'TRUE';
+                        sameRowAsStr = '';
+                    }
+
+                    const startDate = parseDateString(startDateStr);
+                    if (startDate && (!minDate || startDate < minDate)) minDate = startDate;
+                    
+                    return { 
+                        id: id || generateId(), 
+                        parentId: parentId || null, 
+                        sameRowAs: sameRowAsStr || null,
+                        category: category, 
+                        name: name, 
+                        startDate, 
+                        duration: parseInt(durationStr) || 1, 
+                        progress: parseInt(progressStr) || 0, 
+                        status: status || 'pending', 
+                        isMilestone: milestoneStr === 'TRUE' || milestoneStr === '★',
+                        isExpanded: expandedStr !== 'FALSE'
+                    };
+                }).filter(item => item !== null);
+                
+                if (parsedData.length === 0) return alert("有効なデータが見つかりませんでした。");
+                const newStartDate = minDate || new Date();
+                const newStartDateStr = newStartDate.toISOString().substr(0, 10);
+                
+                const newTasks = parsedData.map(item => {
+                    const diffTime = item.startDate ? item.startDate - newStartDate : 0;
+                    return { ...item, startOffset: Math.ceil(diffTime / (1000 * 60 * 60 * 24)) };
+                });
+                
+                setConfirmConfig({ 
+                    message: `CSV読み込み完了。反映しますか？`, 
+                    type: 'info', 
+                    okLabel: '反映する', 
+                    onConfirm: () => { 
+                        commitHistory(newTasks); 
+                        setProjectStartDate(newStartDateStr); 
+                        setConfirmConfig(null); 
+                    } 
+                });
+              } catch (err) { alert("失敗しました。"); }
+              event.target.value = '';
+            };
+            reader.readAsText(file);
+          };
+
+          const handleSaveTemplate = () => {
+            if (!saveName.trim()) return;
+            const newTemplate = { id: generateId(), name: saveName, date: new Date().toLocaleString(), tasks, projectStartDate, siteName };
+            const newTemplates = [...savedTemplates, newTemplate];
+            setSavedTemplates(newTemplates);
+            localStorage.setItem('construction_templates', JSON.stringify(newTemplates));
+            setSaveName(''); setShowSaveModal(false);
+          };
+
+          const requestLoadTemplate = (template) => {
+            setConfirmConfig({
+              message: `「${template.name}」を読み込みますか？\n現在の編集内容は上書きされます。`,
+              type: 'danger',
+              onConfirm: () => {
+                commitHistory(template.tasks);
+                // 着工日は維持するため、保存データの着工日による上書きを削除
+                if (template.siteName !== undefined) setSiteName(template.siteName);
+                setShowLoadModal(false);
+                setConfirmConfig(null);
+              }
+            });
+          };
+
+          const requestDeleteTemplate = (e, id) => {
+            e.stopPropagation();
+            if (id === 'health-archi-standard') {
+                setConfirmConfig({
+                    message: '「HEALTH ARCHI標準仕様」は削除できません。',
+                    type: 'info',
+                    onConfirm: () => setConfirmConfig(null)
+                });
+                return;
+            }
+            setConfirmConfig({
+              message: 'この仕様データを削除しますか？',
+              type: 'danger',
+              onConfirm: () => {
+                const newTemplates = savedTemplates.filter(t => t.id !== id);
+                setSavedTemplates(newTemplates);
+                localStorage.setItem('construction_templates', JSON.stringify(newTemplates));
+                setConfirmConfig(null);
+              }
+            });
+          };
+
+          const requestClearAllData = () => {
+            setConfirmConfig({ 
+                message: 'すべての工程を全消去しますか？\n（白紙の状態になります）', 
+                type: 'danger', 
+                onConfirm: () => { 
+                    commitHistory([]); 
+                    setConfirmConfig(null); 
+                } 
+            });
+          };
+
+          const handleSavePDF = async (targetPageIndex = null) => {
+            if (!window.html2canvas || !window.jspdf) return alert('ライブラリ読込失敗');
+            setIsExporting(true);
+            const pageElements = document.querySelectorAll('.print-page-container');
+            await new Promise(r => setTimeout(r, 300));
+            try {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('l', 'mm', 'a3');
+                if (targetPageIndex !== null) {
+                    const canvas = await window.html2canvas(pageElements[targetPageIndex], { scale: 2.5, useCORS: true, backgroundColor: '#ffffff' });
+                    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 420, 297);
+                    pdf.save(`${siteName || '工程表'}_p${targetPageIndex + 1}.pdf`);
+                } else {
+                    for (let i = 0; i < pageElements.length; i++) {
+                        if (i > 0) pdf.addPage();
+                        const canvas = await window.html2canvas(pageElements[i], { scale: 2.5, useCORS: true, backgroundColor: '#ffffff' });
+                        pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 420, 297);
+                        await new Promise(r => setTimeout(r, 500));
+                    }
+                    pdf.save(`${siteName || '工程表'}.pdf`);
+                }
+            } catch (error) { alert('PDF生成失敗'); } finally { setIsExporting(false); }
+          };
+
+          const calendarMonths = useMemo(() => {
+              const months = [];
+              let currentM = null, currentY = null, count = 0;
+              calendarDays.forEach((day) => {
+                  const m = day.date.getMonth(), y = day.date.getFullYear();
+                  if (m !== currentM || y !== currentY) {
+                      if (currentM !== null) months.push({ year: currentY, month: currentM, count });
+                      currentM = m; currentY = y; count = 1;
+                  } else count++;
+              });
+              if (currentM !== null) months.push({ year: currentY, month: currentM, count });
+              return months;
+          }, [calendarDays]);
+
+          const renderRows = useMemo(() => {
+              // 追加チャート（同一行のバー）はメインの行としては表示しない
+              const mainTasks = tasks.filter(t => !t.sameRowAs);
+              
+              const taskMap = new Map(mainTasks.map(t => [t.id, t]));
+              const childrenMap = new Map();
+              mainTasks.forEach(t => {
+                  if (t.parentId) {
+                      if (!childrenMap.has(t.parentId)) childrenMap.set(t.parentId, []);
+                      childrenMap.get(t.parentId).push(t);
+                  }
+              });
+
+              const rows = [];
+              mainTasks.forEach((task, index) => {
+                  let parent = task.parentId ? taskMap.get(task.parentId) : null;
+                  let isHidden = false;
+                  let depth = 0;
+                  while (parent) {
+                      depth++;
+                      if (!parent.isExpanded) {
+                          isHidden = true;
+                          break;
+                      }
+                      parent = parent.parentId ? taskMap.get(parent.parentId) : null;
+                  }
+                  if (isHidden) return;
+
+                  const children = childrenMap.get(task.id) || [];
+                  const hasChildren = children.length > 0;
+                  const height = ROW_HEIGHT;
+                  const renderDuration = calculateRenderSpan(task.startOffset, task.duration);
+
+                  rows.push({ type: 'task', task, index, depth, hasChildren, children, height, renderDuration });
+              });
+              return rows;
+          }, [tasks, excludeHolidays, projectStartDate]);
+
+          const printPages = useMemo(() => {
+            if (!isPrintMode) return [];
+            const pages = [];
+            const lastTaskEndOffset = tasks.length > 0 ? Math.max(...tasks.map(t => t.startOffset + t.duration)) : 0;
+            const totalPrintDays = Math.min(totalDays, Math.max(30, lastTaskEndOffset + 7)); 
+            const numPages = Math.ceil(totalPrintDays / printPageDays);
+
+            for (let i = 0; i < numPages; i++) {
+                const pageStart = i * printPageDays;
+                const pageEnd = (i + 1) * printPageDays;
+                const pageCalendar = calendarDays.slice(pageStart, pageEnd).filter(d => d);
+                const months = [];
+                let curM = null, count = 0;
+                pageCalendar.forEach(day => {
+                    const key = `${day.date.getFullYear()}-${day.date.getMonth()}`;
+                    if (key !== curM) {
+                        if (curM) months.push({ key: curM, count, label: `${curM.split('-')[0]}年${parseInt(curM.split('-')[1])+1}月` });
+                        curM = key; count = 1;
+                    } else count++;
+                });
+                if (curM) months.push({ key: curM, count, label: `${curM.split('-')[0]}年${parseInt(curM.split('-')[1])+1}月` });
+
+                const pageRows = renderRows.map(row => {
+                    const t = row.task;
+                    const tStart = t.startOffset;
+                    const tEnd = t.startOffset + row.renderDuration;
+                    
+                    let isVisible = false;
+                    let renderProps = null;
+                    if (tEnd > pageStart && tStart < pageEnd) {
+                        isVisible = true;
+                        const vStart = Math.max(tStart, pageStart), vEnd = Math.min(tEnd, pageEnd);
+                        renderProps = { left: (vStart - pageStart) * PRINT_CELL_WIDTH, width: (vEnd - vStart) * PRINT_CELL_WIDTH, isCroppedLeft: tStart < pageStart, isCroppedRight: tEnd > pageEnd };
+                    }
+                    
+                    // サブバーの取得と表示判定
+                    const subBars = tasks.filter(sub => sub.sameRowAs === t.id);
+                    const visibleSubBars = subBars.map(sub => {
+                        const sStart = sub.startOffset;
+                        const sRenderDuration = calculateRenderSpan(sub.startOffset, sub.duration);
+                        const sEnd = sub.startOffset + sRenderDuration;
+                        if (sEnd > pageStart && sStart < pageEnd) {
+                            const vStart = Math.max(sStart, pageStart), vEnd = Math.min(sEnd, pageEnd);
+                            return { ...sub, isVisible: true, renderProps: { left: (vStart - pageStart) * PRINT_CELL_WIDTH, width: (vEnd - vStart) * PRINT_CELL_WIDTH, isCroppedLeft: sStart < pageStart, isCroppedRight: sEnd > pageEnd } };
+                        }
+                        return { ...sub, isVisible: false };
+                    }).filter(sub => sub.isVisible);
+
+                    return { ...row, isVisible, renderProps, visibleSubBars };
+                });
+                
+                const pageMilestones = tasks.filter(t => t.isMilestone && !t.sameRowAs && t.startOffset >= pageStart && t.startOffset < pageEnd).map(t => ({
+                    ...t,
+                    renderLeft: (t.startOffset - pageStart) * PRINT_CELL_WIDTH
+                }));
+
+                if(pageCalendar.length > 0) {
+                    pages.push({ pageIndex: i, calendar: pageCalendar, months, rows: pageRows, milestones: pageMilestones, dateRange: `${formatDateFull(pageCalendar[0].date)} ～ ${formatDateFull(pageCalendar[pageCalendar.length-1].date)}` });
+                }
+            }
+            return pages;
+          }, [isPrintMode, tasks, projectStartDate, printPageDays, renderRows, calendarDays]);
+
+          // バー描画の共通コンポーネント関数
+          const renderTaskBar = (t, isMainBar, isRowChild, rowHasChildren, rowChildren) => {
+              const rDuration = calculateRenderSpan(t.startOffset, t.duration);
+              const startX = t.startOffset * CELL_WIDTH;
+              const width = rDuration * CELL_WIDTH; 
+              
+              // バーのスタイル（高さや不透明度）は、それが配置されている行が子工程かどうかで判定する
+              const isChildStyle = isRowChild;
+              
+              let barColor = t.status === 'completed' ? 'bg-green-500' : t.status === 'pending' ? 'bg-gray-400' : 'bg-blue-500';
+              if (t.isMilestone) barColor = 'bg-red-500';
+              
+              if (!isChildStyle) {
+                  barColor += ' border border-black/10'; 
+              } else {
+                  barColor += ' opacity-85'; 
+              }
+
+              return (
+                  <div 
+                      key={t.id} 
+                      className={`absolute rounded shadow-sm flex flex-col overflow-hidden transition-all duration-75 ${barColor} ${dragState.taskId === t.id ? 'opacity-80 ring-2 ring-orange-400 z-50 shadow-xl' : 'pointer-events-auto cursor-move hover:opacity-90 hover:shadow-md'} group/bar`} 
+                      style={{ left: startX + 2, width: width - 4, top: isChildStyle ? 10 : 4, bottom: isChildStyle ? 10 : 4 }} 
+                      onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, t, 'move'); }} 
+                      onDoubleClick={(e) => e.stopPropagation()}
+                  >
+                      {excludeHolidays && Array.from({ length: rDuration }).map((_, idx) => {
+                          const calIndex = t.startOffset + idx;
+                          if (calIndex < calendarDays.length && calendarDays[calIndex].isDayOff) {
+                              return (
+                                  <div 
+                                      key={`mask-${idx}`} 
+                                      className="absolute top-0 bottom-0 holiday-mask border-l border-white/20 z-0 pointer-events-none"
+                                      style={{ left: (idx * CELL_WIDTH) - 2, width: CELL_WIDTH }}
+                                  ></div>
+                              );
+                          }
+                          return null;
+                      })}
+
+                      {t.status === 'in-progress' && <div className="absolute left-0 top-0 bottom-0 bg-white opacity-30 pointer-events-none z-0" style={{ width: `${t.progress}%` }}></div>}
+                      
+                      <div className="relative z-10 px-1 py-1 h-full flex flex-col justify-center">
+                          <div className="font-medium drop-shadow-md pointer-events-none select-none flex items-center gap-1 text-[10px] text-white">
+                              {width > 20 && <Icons.GripVertical className="w-3 h-3 opacity-50 shrink-0" />}
+                              {width > 30 && <span className="truncate">{t.name}</span>}
+                          </div>
+                          
+                          {isMainBar && rowHasChildren && !t.isExpanded && (
+                              <div className="absolute top-0 bottom-0 left-0 right-0 pointer-events-none overflow-hidden">
+                                  {rowChildren.map(c => {
+                                      const relLeft = (c.startOffset - t.startOffset) * CELL_WIDTH;
+                                      if (relLeft < 0 || relLeft > width) return null;
+                                      return (
+                                          <div key={`child-lbl-${c.id}`} className="absolute top-1/2 -translate-y-1/2 flex items-center bg-black/20 px-1 py-0.5 rounded backdrop-blur-sm shadow-sm" style={{ left: relLeft }}>
+                                              <span className="text-[9px] text-white font-bold whitespace-nowrap drop-shadow">
+                                                  {c.name}
+                                              </span>
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          )}
+                      </div>
+                      
+                      <div 
+                          className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize hover:bg-black/10 flex items-center justify-center z-20" 
+                          onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, t, 'resize'); }}
+                      >
+                          <div className="w-0.5 h-3 bg-white/50 rounded-full"></div>
+                      </div>
+
+                      {!isMainBar && (
+                          <button 
+                              className="absolute top-0 right-0 bg-red-500 hover:bg-red-600 text-white rounded-bl p-0.5 opacity-0 group-hover/bar:opacity-100 transition-opacity z-30"
+                              onMouseDown={(e) => { e.stopPropagation(); requestDeleteSubBar(t.id); }}
+                              title="この追加チャートを削除"
+                          >
+                              <Icons.X className="w-2.5 h-2.5" />
+                          </button>
+                      )}
+                  </div>
+              );
+          };
+
+          const renderEditor = () => (
+            <div className="flex flex-1 overflow-hidden relative">
+              <div 
+                ref={sidebarRef} 
+                onScroll={handleSidebarScroll} 
+                className="flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto overflow-x-hidden z-10 shadow-lg relative" 
+                style={{ width: sidebarWidth }}
+              >
+                {/* サイドバーリサイズ用ハンドル */}
+                <div 
+                    className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 z-50 transition-colors"
+                    onMouseDown={startSidebarResize}
+                ></div>
+
+                <div className="sticky top-0 bg-gray-100 p-3 font-bold text-sm text-gray-600 border-b flex justify-between items-end z-20 pb-2" style={{ height: HEADER_HEIGHT }}>
+                  <span className="pl-2">工程名</span>
+                </div>
+                {showMilestoneLane && (
+                    <div className="border-b border-gray-300 bg-yellow-50 flex items-center px-3 font-bold text-xs text-yellow-800" style={{ height: 40 }}>
+                      ★ <input type="text" value={milestoneLabel} onChange={(e) => setMilestoneLabel(e.target.value)} className="bg-transparent border-none outline-none ml-1 w-full focus:bg-yellow-100 rounded px-1" />
+                    </div>
+                )}
+                <div className="pb-20">
+                  {renderRows.map((row) => (
+                    <div 
+                        key={row.task.id} 
+                        draggable
+                        onDragStart={(e) => handleRowDragStart(e, row)}
+                        onDragOver={(e) => handleRowDragOver(e, row)}
+                        onDrop={(e) => handleRowDrop(e, row)}
+                        onDragEnd={handleRowDragEnd}
+                        className={`border-b border-gray-300 transition group relative flex items-center ${!row.task.parentId ? 'bg-slate-100 hover:bg-slate-200' : 'bg-white hover:bg-orange-50'} ${dragOverTaskId === row.task.id ? 'border-t-2 border-t-blue-500' : ''}`} 
+                        style={{ height: row.height }}
+                    >
+                      {/* 行ドラッグ用ハンドル */}
+                      <div className="cursor-move px-1 text-gray-400 hover:text-gray-700 shrink-0">
+                          <Icons.GripVertical className="w-3 h-3" />
+                      </div>
+
+                      <div className="flex-1 flex items-center min-w-0 gap-1" style={{ paddingLeft: `${row.depth * 16}px` }}>
+                        {row.hasChildren ? (
+                          <button onClick={() => toggleExpand(row.task.id)} className="p-0.5 text-gray-600 hover:bg-gray-300 rounded shrink-0">
+                            {row.task.isExpanded ? <Icons.ChevronDown className="w-4 h-4" /> : <Icons.ChevronRight className="w-4 h-4" />}
+                          </button>
+                        ) : (
+                          <div className="w-5 h-5 shrink-0" />
+                        )}
+                        <input type="text" value={row.task.name} onChange={(e) => updateTask(row.task.id, 'name', e.target.value)} className={`flex-1 min-w-0 bg-transparent border border-transparent hover:border-gray-400 focus:border-blue-500 focus:bg-white rounded px-1 py-0.5 text-sm outline-none ${row.task.isMilestone ? 'text-red-600 font-bold' : (!row.task.parentId ? 'font-bold text-gray-900' : 'text-gray-800 font-medium')}`} />
+                        <div className="flex items-center shrink-0 pr-2">
+                          <button onClick={() => toggleMilestone(row.task.id, row.task.isMilestone)} className={`p-1 rounded hover:bg-yellow-100 transition-opacity ${row.task.isMilestone ? 'opacity-100 text-red-500' : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-yellow-500'}`}><Icons.Star className={`w-3.5 h-3.5 ${row.task.isMilestone ? 'fill-current' : ''}`} /></button>
+                          <div className="flex gap-1 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => addTask(row.index, row.task.category)} className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-100 rounded" title="同じ階層に工程を追加"><Icons.FilePlus className="w-3.5 h-3.5" /></button>
+                            {!row.task.parentId && (
+                                <button onClick={() => addSubTask(row.task.id)} className="p-1 text-green-600 hover:text-green-800 hover:bg-green-200 rounded" title="子工程を追加"><Icons.CornerDownRight className="w-3.5 h-3.5" /></button>
+                            )}
+                            <button onClick={(e) => requestDeleteTask(e, row.task.id)} className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-100 rounded" title="削除"><Icons.Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="p-2 text-center">
+                    <button onClick={() => addTask(tasks.length - 1, '追加工事')} className="text-xs text-blue-500 hover:text-blue-700 flex items-center justify-center w-full gap-1 py-1 border border-dashed border-blue-200 rounded hover:bg-blue-50"><Icons.Plus className="w-3 h-3" /> 工程を追加</button>
+                  </div>
+                </div>
+              </div>
+              <div ref={ganttRef} onScroll={handleGanttScroll} className="flex-1 overflow-x-auto overflow-y-auto bg-white relative">
+                <div className="min-w-max">
+                  <div className="sticky top-0 z-10 bg-white border-b shadow-sm" style={{ height: HEADER_HEIGHT }}>
+                    <div className="flex border-b border-gray-200" style={{ height: HEADER_HEIGHT / 2 }}>
+                        {calendarMonths.map((m, i) => <div key={i} className="flex items-center justify-center text-xs font-bold text-gray-700 bg-gray-50 border-r border-gray-200" style={{ width: m.count * CELL_WIDTH }}>{m.year}年{m.month + 1}月</div>)}
+                    </div>
+                    <div className="flex" style={{ height: HEADER_HEIGHT / 2 }}>
+                        {calendarDays.map((day, i) => <div key={i} className={`flex-shrink-0 border-r flex flex-col items-center justify-center text-[10px] leading-tight ${day.isToday ? 'bg-red-50 border-red-200' : day.isDayOff ? 'bg-pink-50 text-red-500' : day.isWeekend ? 'bg-gray-50 text-blue-500' : 'text-gray-600'}`} style={{ width: CELL_WIDTH }}><span className={`font-bold ${day.isToday ? 'text-red-600' : ''}`}>{day.date.getDate()}</span></div>)}
+                    </div>
+                  </div>
+                  <div className="relative pb-10">
+                    <div className="absolute inset-0 flex pointer-events-none h-full">
+                      {calendarDays.map((day, i) => <div key={i} className={`flex-shrink-0 border-r h-full ${day.isToday ? 'bg-red-50/30 border-red-200' : day.isDayOff ? 'bg-pink-50/40' : day.isWeekend ? 'bg-gray-50/50' : 'border-gray-100'}`} style={{ width: CELL_WIDTH }}>{day.isToday && <div className="w-full h-full border-l-2 border-red-400 opacity-50"></div>}</div>)}
+                    </div>
+                    {showMilestoneLane && (
+                        <div className="relative w-full border-b border-yellow-200 bg-yellow-50/30 flex items-center" style={{ height: 40 }}>
+                            {tasks.filter(t => t.isMilestone && !t.sameRowAs).map(t => {
+                                const startX = t.startOffset * CELL_WIDTH;
+                                return (
+                                    <div key={`ms-${t.id}`} className="absolute flex flex-col items-center justify-center transform -translate-x-1/2 z-10" style={{ left: startX + CELL_WIDTH/2, top: 2 }}>
+                                        <Icons.Star className="w-4 h-4 text-red-500 fill-current drop-shadow-sm" />
+                                        <span className="text-[9px] text-red-600 font-bold whitespace-nowrap bg-white/80 px-1 rounded border border-red-100 shadow-sm mt-0.5">{t.name}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    <div className="pt-0">
+                      {renderRows.map((row) => {
+                        const { task } = row;
+                        const subBars = tasks.filter(sub => sub.sameRowAs === task.id);
+                        const isRowChild = task.parentId !== null;
+
+                        return (
+                          <div 
+                              key={task.id} 
+                              style={{ height: row.height }} 
+                              className={`relative w-full border-b ${!task.parentId ? 'border-gray-300 bg-slate-100/30' : 'border-gray-100'} hover:bg-gray-50/50 flex items-center cursor-pointer`}
+                              onDoubleClick={(e) => handleRowDoubleClick(e, task.id)}
+                              title="ダブルクリックで追加チャートを作成"
+                          >
+                              {/* メインバー */}
+                              {renderTaskBar(task, true, isRowChild, row.hasChildren, row.children)}
+                              
+                              {/* サブバー（同一行の追加チャート） */}
+                              {subBars.map(subBar => renderTaskBar(subBar, false, isRowChild, false, []))}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+
+          const renderPrintPreview = () => (
+            <div id="print-preview-root" className="w-full h-auto bg-gray-100 overflow-visible print:bg-white">
+                <div className="w-[420mm] mx-auto mb-8 mt-8 bg-blue-50 border border-blue-200 p-4 rounded-md text-sm text-blue-800 print:hidden flex items-start gap-3">
+                    <Icons.Info className="w-5 h-5 shrink-0 mt-0.5" />
+                    <div><p className="font-bold mb-1">印刷プレビュー</p><p>A3横向きに最適化して自動改ページされます。上部の「PDF保存」の利用を推奨します。</p></div>
+                </div>
+                {printPages.map((page, i) => (
+                    <div key={i} className="mb-12 relative">
+                        <div className="w-[420mm] mx-auto flex justify-end mb-2 print:hidden"><button onClick={() => handleSavePDF(i)} className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-3 py-1.5 rounded flex items-center gap-1 shadow-sm"><Icons.Save className="w-3 h-3" /> このページ（{i+1}P）のみ保存</button></div>
+                        <div className="print-page-container bg-white shadow-lg mx-auto print:shadow-none print:break-after-page relative" style={{ width: '420mm', minHeight: '297mm', padding: '10mm' }}>
+                            <div className="flex justify-between items-end border-b-2 border-gray-800 pb-2 mb-4">
+                                <div><h1 className="text-2xl font-bold text-gray-900">{siteName || '工事工程表'}</h1><p className="text-xs text-gray-500">期間: {page.dateRange} （{i + 1}ページ）</p></div>
+                                <div className="text-right"><div className="text-xs text-gray-400">作成日: {new Date().toLocaleDateString()}</div></div>
+                            </div>
+                            <div className="grid border border-gray-400" style={{ gridTemplateColumns: `160px 1fr` }}>
+                                <div className="border-r border-gray-400 bg-gray-50">
+                                    <div className="border-b border-gray-300 p-2 font-bold text-xs bg-gray-100 flex items-end justify-center" style={{ height: 40 }}>工程名</div>
+                                    {showMilestoneLane && (
+                                        <div className="border-b border-gray-400 bg-yellow-50 px-2 flex items-center font-bold text-yellow-800" style={{ height: printRowHeight }}>
+                                            <span className="pdf-text-fix w-full truncate" style={{ fontSize: printRowHeight < 20 ? '8px' : '10px', height: `${printRowHeight}px`, lineHeight: `${printRowHeight}px` }}>★ {milestoneLabel}</span>
+                                        </div>
+                                    )}
+                                    {page.rows.map((row) => {
+                                        return (
+                                            <div key={`p-t-${row.task.id}`} className={`border-b ${!row.task.parentId ? 'border-gray-300 bg-gray-100' : 'border-gray-200'} px-2 relative flex items-center`} style={{ height: printRowHeight }}>
+                                                <span className="pdf-text-fix w-full truncate transition-all" style={{ 
+                                                    fontSize: printRowHeight < 20 ? '8px' : '10px', 
+                                                    height: `${printRowHeight}px`,
+                                                    lineHeight: `${printRowHeight}px`,
+                                                    color: row.task.isMilestone ? '#DC2626' : '#111827', 
+                                                    fontWeight: row.task.isMilestone || !row.task.parentId ? 'bold' : 'normal', 
+                                                    paddingLeft: `${row.depth * 10}px` 
+                                                }}>
+                                                    {row.hasChildren ? (row.task.isExpanded ? '▼ ' : '▶ ') : ''}
+                                                    {row.task.isMilestone && '★ '}
+                                                    {row.task.name}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="overflow-hidden print:overflow-visible relative">
+                                    <div className="flex flex-col border-b border-gray-400" style={{ height: 40 }}>
+                                        <div className="flex border-b border-gray-300 h-[20px]">{page.months.map((m, mi) => <div key={mi} className="flex items-center justify-center text-[10px] font-bold bg-gray-50 border-r border-gray-300" style={{ width: m.count * PRINT_CELL_WIDTH }}>{m.label}</div>)}</div>
+                                        <div className="flex h-[20px]">{page.calendar.map((day, d) => <div key={d} className={`flex-shrink-0 border-r border-gray-300 flex flex-col items-center justify-center text-[8px] leading-tight ${day.isDayOff ? 'bg-red-50 text-red-600' : day.isWeekend ? 'bg-blue-50 text-blue-600' : 'text-gray-800'}`} style={{ width: PRINT_CELL_WIDTH }}><span className="font-bold">{day.date.getDate()}</span></div>)}</div>
+                                    </div>
+                                    <div className="relative">
+                                        <div className="absolute inset-0 flex pointer-events-none z-0">{page.calendar.map((day, d) => <div key={d} className={`flex-shrink-0 border-r h-full ${day.isDayOff ? 'bg-red-50/30' : day.isWeekend ? 'bg-blue-50/30' : 'border-gray-200'}`} style={{ width: PRINT_CELL_WIDTH }}></div>)}</div>
+                                        {showMilestoneLane && (
+                                            <div className="relative z-10 w-full border-b border-gray-400 bg-yellow-50/30" style={{ height: printRowHeight }}>
+                                                {page.milestones.map(m => (
+                                                    <div key={`p-ms-${m.id}`} className="absolute flex flex-col items-center justify-center transform -translate-x-1/2" style={{ left: m.renderLeft + PRINT_CELL_WIDTH/2, top: Math.max(1, printRowHeight/2 - 8) }}>
+                                                        <Icons.Star className="w-4 h-4 text-red-500 fill-current" />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="relative z-10">
+                                            {page.rows.map((row) => {
+                                                const isRowChild = row.task.parentId !== null;
+                                                const parentPad = Math.max(1, Math.floor(printRowHeight * 0.1));
+                                                const childPad = Math.max(2, Math.floor(printRowHeight * 0.25));
+                                                const vPad = isRowChild ? childPad : parentPad;
+
+                                                const renderPrintBar = (t, rProps, isMain) => {
+                                                    let barColor = t.status === 'completed' ? 'bg-green-500' : t.status === 'pending' ? 'bg-gray-400' : 'bg-blue-500';
+                                                    if (t.isMilestone) barColor = 'bg-red-500';
+                                                    
+                                                    if (!isRowChild) {
+                                                        barColor += ' border border-black/10'; 
+                                                    } else {
+                                                        barColor += ' opacity-85'; 
+                                                    }
+
+                                                    return (
+                                                        <div key={`p-b-${t.id}`} className={`absolute rounded-sm overflow-hidden print-color-adjust ${barColor} ${rProps.isCroppedLeft ? 'rounded-l-none border-l-2 border-white border-dashed' : ''} ${rProps.isCroppedRight ? 'rounded-r-none border-r-2 border-white border-dashed' : ''}`} style={{ left: rProps.left + 2, width: rProps.width - 4, top: vPad, bottom: vPad }}>
+                                                            {excludeHolidays && Array.from({ length: Math.round(rProps.width / PRINT_CELL_WIDTH) }).map((_, idx) => {
+                                                                const vStart = Math.max(t.startOffset, i * printPageDays); 
+                                                                const globalCalIndex = vStart + idx;
+                                                                if (globalCalIndex < calendarDays.length && calendarDays[globalCalIndex].isDayOff) {
+                                                                    return (
+                                                                        <div 
+                                                                            key={`p-mask-${idx}`} 
+                                                                            className="absolute top-0 bottom-0 holiday-mask-print border-l border-white/30 z-0 pointer-events-none"
+                                                                            style={{ left: (idx * PRINT_CELL_WIDTH) - 2, width: PRINT_CELL_WIDTH }}
+                                                                        ></div>
+                                                                    );
+                                                                }
+                                                                return null;
+                                                            })}
+
+                                                            <div className="relative z-10 px-1 text-white flex items-center h-full">
+                                                                {isMain && row.hasChildren && !row.task.isExpanded && (
+                                                                    <div className="absolute top-0 bottom-0 left-0 right-0 pointer-events-none overflow-hidden">
+                                                                        {row.children.map(c => {
+                                                                            const relLeft = (c.startOffset - row.task.startOffset) * PRINT_CELL_WIDTH;
+                                                                            if (relLeft < 0 || relLeft > rProps.width) return null;
+                                                                            return (
+                                                                                <div key={`p-child-${c.id}`} className="absolute top-1/2 -translate-y-1/2 flex items-center bg-black/20 px-0.5 rounded" style={{ left: relLeft }}>
+                                                                                    <span className="text-[6px] text-white font-bold whitespace-nowrap drop-shadow">
+                                                                                        {c.name}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                };
+
+                                                return (
+                                                    <div key={`p-b-t-${row.task.id}`} className={`border-b ${!isRowChild ? 'border-gray-300' : 'border-gray-200'} relative`} style={{ height: printRowHeight }}>
+                                                        {row.isVisible && renderPrintBar(row.task, row.renderProps, true)}
+                                                        {row.visibleSubBars && row.visibleSubBars.map(sub => renderPrintBar(sub, sub.renderProps, false))}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-4 text-[10px] text-gray-500 text-center border-t pt-1">{i + 1} / {printPages.length} ページ</div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+          );
+
+          return (
+            <div className={`flex flex-col bg-gray-50 text-slate-800 font-sans relative ${isPrintMode ? 'h-screen overflow-auto' : 'h-screen overflow-hidden'} ${dragState.isDragging ? 'cursor-grabbing select-none' : ''}`}>
+              <input type="file" ref={fileInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
+              {confirmConfig && (
+                <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center no-print">
+                  <div className="bg-white p-6 rounded-lg shadow-xl w-96 animate-in fade-in zoom-in duration-200">
+                    <div className="flex items-start gap-4 mb-4">
+                      <div className={`p-2 rounded-full ${confirmConfig.type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>{confirmConfig.type === 'danger' ? <Icons.AlertTriangle className="w-6 h-6" /> : <Icons.Info className="w-6 h-6" />}</div>
+                      <div className="flex-1"><h3 className="font-bold text-lg mb-1">{confirmConfig.type === 'danger' ? '確認' : 'ご案内'}</h3><p className="text-gray-600 whitespace-pre-wrap text-sm leading-relaxed">{confirmConfig.message}</p></div>
+                    </div>
+                    <div className="flex justify-end gap-2"><button onClick={() => setConfirmConfig(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded transition">{confirmConfig.type === 'info' ? '閉じる' : 'キャンセル'}</button>{(confirmConfig.type === 'danger' || confirmConfig.okLabel) && <button onClick={confirmConfig.onConfirm} className={`px-4 py-2 text-white rounded shadow-sm transition ${confirmConfig.type === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>{confirmConfig.okLabel || '実行'}</button>}</div>
+                  </div>
+                </div>
+              )}
+              {showSaveModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center no-print">
+                  <div className="bg-white p-6 rounded-lg shadow-xl w-96"><h3 className="text-lg font-bold mb-4 flex items-center gap-2"><Icons.Star className="w-5 h-5 text-yellow-500 fill-current" /> 仕様保存</h3><input type="text" placeholder="仕様名を入力..." className="w-full border p-2 rounded mb-4" value={saveName} onChange={(e) => setSaveName(e.target.value)} autoFocus /><div className="flex justify-end gap-2"><button onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">キャンセル</button><button onClick={handleSaveTemplate} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">保存</button></div></div>
+                </div>
+              )}
+              {showLoadModal && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center no-print">
+                  <div className="bg-white p-6 rounded-lg shadow-xl w-[500px] max-h-[80vh] flex flex-col">
+                    <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold flex items-center gap-2"><Icons.FolderOpen className="w-5 h-5 text-orange-600" /> 仕様読込</h3><button onClick={() => setShowLoadModal(false)}><Icons.X className="w-5 h-5 text-gray-400" /></button></div>
+                    <div className="flex-1 overflow-y-auto border rounded bg-gray-50 p-2 space-y-2">{savedTemplates.length === 0 ? <div className="text-center text-gray-400 py-8">無し</div> : savedTemplates.map(t => <div key={t.id} onClick={() => setShowLoadModal(false) || requestLoadTemplate(t)} className="bg-white p-3 rounded border hover:border-orange-500 cursor-pointer flex justify-between items-center group shadow-sm"><div className="flex-1"><div className="font-bold text-slate-700">{t.name}</div><div className="text-xs text-gray-500">{t.date}</div></div><button onClick={(e) => { e.stopPropagation(); requestDeleteTemplate(e, t.id); }} className="p-2 hover:bg-red-50 text-gray-300 hover:text-red-500 rounded"><Icons.Trash2 className="w-4 h-4" /></button></div>)}</div>
+                  </div>
+                </div>
+              )}
+              {!isPrintMode && (
+                <header className="bg-slate-800 text-white p-3 shadow-md flex justify-between items-center z-20 no-print">
+                    <div className="flex items-center gap-2">
+                        <div className="bg-orange-500 p-2 rounded-lg"><Icons.Calendar className="w-5 h-5 text-white" /></div>
+                        <h1 className="text-lg font-bold leading-tight hidden xl:block whitespace-nowrap">施工管理</h1>
+                        
+                        <div className="flex items-center bg-slate-700 rounded-md border border-slate-600 px-3 py-1.5 w-64 ml-2">
+                            <Icons.Building2 className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+                            <input type="text" value={siteName} onChange={(e) => setSiteName(e.target.value)} placeholder="現場名" className="bg-transparent border-none text-white text-sm w-full focus:outline-none placeholder-slate-500" />
+                        </div>
+
+                        <div className="flex items-center bg-slate-700 rounded-md border border-slate-600 px-3 py-1.5 ml-2">
+                            <span className="text-[10px] text-slate-400 mr-2 shrink-0">着工日</span>
+                            <input type="date" value={projectStartDate} onChange={(e) => setProjectStartDate(e.target.value)} className="bg-transparent text-white border-none text-sm focus:outline-none cursor-pointer" />
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {/* Undo / Redo ボタン */}
+                        <div className="flex items-center gap-1 bg-slate-700 rounded border border-slate-600 p-0.5 mr-2">
+                            <button onClick={handleUndo} disabled={historyIndex === 0} className="p-1 rounded text-slate-300 hover:bg-slate-600 disabled:opacity-30 disabled:hover:bg-transparent" title="戻る"><Icons.Undo className="w-4 h-4" /></button>
+                            <div className="w-px h-4 bg-slate-600"></div>
+                            <button onClick={handleRedo} disabled={historyIndex === history.length - 1} className="p-1 rounded text-slate-300 hover:bg-slate-600 disabled:opacity-30 disabled:hover:bg-transparent" title="やり直し"><Icons.Redo className="w-4 h-4" /></button>
+                        </div>
+                        
+                        {/* 連動ボタン */}
+                        <button onClick={() => setIsLinkedMode(!isLinkedMode)} className={`flex items-center justify-center gap-1 px-5 py-1.5 rounded text-sm font-bold border mr-1 ${isLinkedMode ? 'bg-purple-600 text-white border-purple-500' : 'bg-slate-700 text-slate-300 border-slate-600 hover:bg-slate-600'}`} title="工程を動かすと後続の工程も一緒に動きます"><Icons.Link className="w-4 h-4" /> チャート連動</button>
+                        
+                        {/* マイルストーン表示トグルボタン */}
+                        <label className="flex items-center gap-2 cursor-pointer bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded text-sm text-slate-300 transition select-none border border-slate-600 mr-1" title="マイルストーン行を表示します">
+                            <input 
+                                type="checkbox" 
+                                checked={showMilestoneLane} 
+                                onChange={(e) => setShowMilestoneLane(e.target.checked)} 
+                                className="w-4 h-4 text-blue-500 rounded focus:ring-blue-500 focus:ring-2 bg-slate-800 border-gray-500" 
+                            />
+                            <span className={showMilestoneLane ? 'text-white font-bold' : ''}>マイルストーン表示</span>
+                        </label>
+
+                        {/* 日祝日を除くトグルボタン */}
+                        <label className="flex items-center gap-2 cursor-pointer bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded text-sm text-slate-300 transition select-none border border-slate-600 mr-4" title="日・祝日を休工日として工期に計算しません">
+                            <input 
+                                type="checkbox" 
+                                checked={excludeHolidays} 
+                                onChange={(e) => toggleExcludeHolidays(e.target.checked)} 
+                                className="w-4 h-4 text-blue-500 rounded focus:ring-blue-500 focus:ring-2 bg-slate-800 border-gray-500" 
+                            />
+                            <span className={excludeHolidays ? 'text-white font-bold' : ''}>日祝日を除く</span>
+                        </label>
+                        
+                        <button onClick={handleExportCSV} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium transition">CSV出力</button>
+                        <button onClick={() => fileInputRef.current.click()} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm font-medium transition">CSV読込</button>
+                        
+                        <button onClick={() => setIsPrintMode(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1 ml-2"><Icons.Printer className="w-4 h-4" /> 印刷プレビュー</button>
+                        <button onClick={() => setShowSaveModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1"><Icons.Star className="w-4 h-4 fill-current text-yellow-300" /> 仕様保存</button>
+                        <button onClick={() => setShowLoadModal(true)} className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1"><Icons.FolderOpen className="w-4 h-4" /> 仕様読込</button>
+                        <button onClick={requestClearAllData} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-sm font-medium transition flex items-center gap-1 ml-2" title="全消去"><Icons.X className="w-4 h-4" /> 全消去</button>
+                    </div>
+                </header>
+              )}
+              {isPrintMode && (
+                <div className="bg-slate-800 text-white p-2 flex justify-between items-center shadow-lg no-print z-50 sticky top-0 min-w-max">
+                    <button onClick={() => setIsPrintMode(false)} className="bg-slate-600 hover:bg-slate-500 px-4 py-2 rounded font-bold flex items-center gap-1 transition"><Icons.ArrowLeft className="w-4 h-4" /> 戻る</button>
+                    <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-yellow-400">表示日数:</span>
+                            <button onClick={() => setPrintPageDays(Math.max(10, printPageDays - 1))} className="bg-gray-600 hover:bg-gray-500 w-6 h-6 rounded font-bold transition">-</button>
+                            <span className="text-xs font-mono w-8 text-center bg-gray-900 rounded py-1">{printPageDays}</span>
+                            <button onClick={() => setPrintPageDays(printPageDays + 1)} className="bg-gray-600 hover:bg-gray-500 w-6 h-6 rounded font-bold transition">+</button>
+                            <button onClick={() => setPrintPageDays(A3_RECOMMENDED_DAYS)} className="bg-blue-600 hover:bg-blue-500 px-2 py-1 rounded text-xs ml-2 transition">A3自動</button>
+                        </div>
+                        <div className="flex items-center gap-2 border-l border-slate-600 pl-6">
+                            <span className="text-sm font-bold text-emerald-400">行の高さ:</span>
+                            <button onClick={() => setPrintRowHeight(Math.max(12, printRowHeight - 2))} className="bg-gray-600 hover:bg-gray-500 w-6 h-6 rounded font-bold transition">-</button>
+                            <span className="text-xs font-mono w-8 text-center bg-gray-900 rounded py-1">{printRowHeight}</span>
+                            <button onClick={() => setPrintRowHeight(Math.min(48, printRowHeight + 2))} className="bg-gray-600 hover:bg-gray-500 w-6 h-6 rounded font-bold transition">+</button>
+                            <button onClick={() => setPrintRowHeight(24)} className="bg-emerald-600 hover:bg-emerald-500 px-2 py-1 rounded text-xs ml-2 transition">標準</button>
+                        </div>
+                    </div>
+                    <button onClick={() => handleSavePDF(null)} disabled={isExporting} className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded font-bold shadow flex items-center gap-1 transition disabled:bg-gray-400">{isExporting ? <Icons.Loader className="w-4 h-4 animate-spin" /> : <Icons.FileText className="w-4 h-4" />}{isExporting ? '生成中...' : '全ページPDF保存'}</button>
+                </div>
+              )}
+              {isPrintMode ? renderPrintPreview() : renderEditor()}
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
