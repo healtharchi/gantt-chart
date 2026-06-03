@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>使い方ガイド｜ガントチャート工程表｜HEALTH ARCHI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style> body { font-family: 'Noto Sans JP', sans-serif; } </style>
+</head>
+<body class="bg-[#F0EDE8] text-[#2C2C2C]">
+
+  <header class="bg-[#1B2B4B] text-white px-4 py-3 flex justify-between items-center shadow-md">
+    <span class="font-bold text-lg tracking-wide">HEALTH <span class="text-[#F08300]">ARCHI</span><span class="text-slate-300 text-sm">｜使い方ガイド</span></span>
+    <a href="index.html" class="border border-white/40 hover:bg-white/10 text-white text-sm font-medium px-3 py-2 rounded whitespace-nowrap" style="min-height:40px;">🏠 ツール本体へ戻る</a>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-5 py-8">
+    <h1 class="text-2xl font-bold text-[#1B2B4B] mb-2">ガントチャート工程表 の使い方</h1>
+    <p class="text-sm text-slate-600 mb-8">工事の「誰が・いつ・何をするか」を一枚の表で整理し、職人や下請け業者への工程共有資料としてそのまま使えます。</p>
+
+    <section class="mb-8">
+      <h2 class="text-lg font-bold text-[#1B2B4B] border-l-4 border-[#F08300] pl-2 mb-3">このツールでできること</h2>
+      <ul class="list-disc pl-6 space-y-1 text-sm">
+        <li>工事の工程をガントチャート（横棒の予定表）で見える化</li>
+        <li>業者・職人への工程説明・共有資料づくり</li>
+        <li>工程の抜け漏れ防止、着工日からの自動日付計算</li>
+        <li>CSVでの出力・読込、印刷、仕様の保存・読込</li>
+      </ul>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="text-lg font-bold text-[#1B2B4B] border-l-4 border-[#F08300] pl-2 mb-3">使い方（かんたん4ステップ）</h2>
+      <ol class="space-y-4">
+        <li class="bg-white rounded p-4 shadow-sm"><span class="font-bold text-[#F08300]">STEP 1</span><br>画面上部のバーで「現場名」と「着工日」を入力します。</li>
+        <li class="bg-white rounded p-4 shadow-sm"><span class="font-bold text-[#F08300]">STEP 2</span><br>左側の「＋ 工程を追加」を押して、工程名・開始日・期間（日数）を入れていきます。</li>
+        <li class="bg-white rounded p-4 shadow-sm"><span class="font-bold text-[#F08300]">STEP 3</span><br>右側の横棒（バー）をドラッグして、予定の調整ができます。「チャート連動」をONにすると、前の工程を動かすと後ろの工程も一緒に動きます。</li>
+        <li class="bg-white rounded p-4 shadow-sm"><span class="font-bold text-[#F08300]">STEP 4</span><br>完成したら「印刷プレビュー」で配布用に印刷、または「仕様保存」で内容を保存。次回は「仕様読込」で続きから作業できます。</li>
+      </ol>
+    </section>
+
+    <section class="mb-8">
+      <h2 class="text-lg font-bold text-[#1B2B4B] border-l-4 border-[#F08300] pl-2 mb-3">うまくいかない時は</h2>
+      <ul class="list-disc pl-6 space-y-1 text-sm">
+        <li>「日祝日を除く」をONにすると、土日祝を休工日として工期計算します。意図と違うときはON/OFFを確認してください。</li>
+        <li>入力したデータはこの端末のブラウザ内に保存されます（外部には送信されません）。別の端末・ブラウザには引き継がれないので、共有したいときは「CSV出力」や「仕様保存」をご利用ください。</li>
+      </ul>
+    </section>
+
+    <div class="text-center mt-10">
+      <a href="index.html" class="inline-block bg-[#F08300] hover:opacity-90 text-white font-bold px-6 py-3 rounded" style="min-height:44px;">🏠 工程表を使ってみる</a>
+    </div>
+
+    <footer class="text-center text-xs text-slate-500 mt-12">
+      HEALTH ARCHI（<a href="https://healtharchi.com" class="underline">healtharchi.com</a>）
+    </footer>
+  </main>
+</body>
+</html>
