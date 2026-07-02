@@ -15,7 +15,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- Babel (for JSX) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 
     <!-- Libraries for Export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -93,7 +93,7 @@
 <body class="bg-gray-50 text-slate-800 font-sans h-screen overflow-hidden">
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script type="text/plain" id="app-source">
         const { useState, useEffect, useMemo, useRef } = React;
 
         // --- アイコンコンポーネント (SVG) ---
@@ -1549,5 +1549,12 @@
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
+<script>
+(function () {
+  var src = document.getElementById('app-source').textContent;
+  var code = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code;
+  (0, eval)(code);
+})();
+</script>
 </body>
 </html>
